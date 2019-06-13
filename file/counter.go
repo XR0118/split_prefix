@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	rad "split_prefix/go-radix"
 	"split_prefix/radix"
+	rad "split_prefix/radix-counter"
 	"sync"
 	"sync/atomic"
 )
@@ -33,10 +33,11 @@ type Counter struct {
 	splitLimit  int
 	countLimit  int
 	counterPool chan bool
+	limitUp     int
 	wg          *sync.WaitGroup
 }
 
-func NewCounter(path string, splitLimit, countLimit, poolLimit int) *Counter {
+func NewCounter(path string, splitLimit, countLimit, limitUp, poolLimit int) *Counter {
 	fileManager := NewFileManager(path)
 	if splitLimit > 200000 {
 		countLimit = 20000
@@ -48,6 +49,7 @@ func NewCounter(path string, splitLimit, countLimit, poolLimit int) *Counter {
 		fileManager: fileManager,
 		splitLimit:  splitLimit,
 		countLimit:  countLimit,
+		limitUp:     limitUp,
 		counterPool: make(chan bool, poolLimit),
 		wg:          new(sync.WaitGroup),
 	}
@@ -84,6 +86,7 @@ func (c *Counter) count() (*rad.Tree, error) {
 	}
 	childResultPool := make(chan countResult, 100)
 
+	// 统计线程
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
@@ -107,6 +110,8 @@ func (c *Counter) count() (*rad.Tree, error) {
 		go c.getChildResult(file, totalSize, childResultPool)
 	}
 	c.wg.Wait()
+
+	// 所有线程完成后统计
 	t := int(*totalSize)
 	log.Print(t)
 	val, ok := resultTree.Get("")
@@ -150,16 +155,18 @@ func (c *Counter) createTrie(fileName string) (trie_tree TrieTree, lines int) {
 
 func (c *Counter) getResultWithRetry(total, limit int, fn func(limit int) (countResult, int)) (countResult, int) {
 	result, size := fn(limit)
-	times := 1
+	// times := 1
 	for size != total { // 不相等说明无法细分到 limit 的大小，需要加大limit 重试
-		log.Printf("Wrong result with limit (%d) error: total size (%d) != file line number (%d)", limit*times, size, total)
-		times++
-		result, size = fn(limit * times)
+		log.Printf("Wrong result with limit (%d) error: total size (%d) != file line number (%d)", limit, size, total)
+		limit *= 2
+		if limit > c.limitUp {
+			limit = c.limitUp
+		}
+		result, size = fn(limit)
 	}
 	return result, size
 }
 
-// 还能优化，中间有许多不必要的操作
 func mergeResult(a countResult, t *rad.Tree) {
 	for k, vFile := range a {
 		for i := 0; i <= len(k); i++ {
