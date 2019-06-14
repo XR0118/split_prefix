@@ -39,11 +39,8 @@ type Counter struct {
 
 func NewCounter(path string, splitLimit, countLimit, limitUp, poolLimit int) *Counter {
 	fileManager := NewFileManager(path)
-	if splitLimit > 200000 {
-		countLimit = 20000
-	}
-	if countLimit > splitLimit/5 {
-		countLimit = splitLimit / 5
+	if countLimit > splitLimit/100 { // 需要保证 countLimit 足够小
+		countLimit = splitLimit / 100
 	}
 	return &Counter{
 		fileManager: fileManager,
@@ -93,8 +90,8 @@ func (c *Counter) count() (*rad.Tree, error) {
 		defer c.wg.Done()
 		count := 0
 		for {
-			tmp := <-childResultPool
-			mergeResult(tmp, resultTree)
+			childResult := <-childResultPool
+			mergeResult(childResult, resultTree)
 			count++
 			if count == len(c.fileManager.Files()) {
 				log.Printf("total result number: %d", count)
@@ -103,8 +100,6 @@ func (c *Counter) count() (*rad.Tree, error) {
 		}
 	}()
 
-	// walk 选出了满足 limit 条件的前缀后需要确认这些前缀的数量之和是不是与当前树的根目录 size 一致
-	// 如果不一致，那么就将 limit 放大，知道 size 一致为止
 	c.wg.Add(len(c.fileManager.Files()))
 	for _, file := range c.fileManager.Files() {
 		c.counterPool <- true
@@ -154,10 +149,12 @@ func (c *Counter) createTrie(fileName string) (trie_tree *radix.Tree, lines int)
 	return
 }
 
+// walk 选出了满足 limit 条件的前缀后需要确认这些前缀的数量之和是不是与当前树的根目录 size 一致
+// 如果不一致，那么就将 limit 放大，知道 size 一致为止
 func (c *Counter) getResultWithRetry(total, limit int, fn func(limit int) (countResult, int)) (countResult, int) {
 	result, size := fn(limit)
 	for size != total { // 不相等说明无法细分到 limit 的大小，需要加大limit 重试
-		if size == c.limitUp { // 最大上线也无法满足结果，需要提升上线
+		if limit == c.limitUp { // 最大上线也无法满足结果，需要提升上线或者减小
 			log.Fatalf("can not get complete result from current Uplimit(%d)", c.limitUp)
 			break
 		}
@@ -172,8 +169,8 @@ func (c *Counter) getResultWithRetry(total, limit int, fn func(limit int) (count
 }
 
 // 将各个文件的结果合并到统计结果中
-func mergeResult(a countResult, t *rad.Tree) {
-	for k, vFile := range a {
+func mergeResult(childResult countResult, t *rad.Tree) {
+	for k, vFile := range childResult {
 		for i := 0; i <= len(k); i++ {
 			if vOld, ok := t.Get(k[:i]); ok {
 				t.Insert(k[:i], vOld.(int)+vFile)
