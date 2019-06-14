@@ -7,21 +7,31 @@ import (
 	"os"
 	"split_prefix/file"
 	"strings"
+	"time"
 )
 
 func main() {
-	limit := flag.Int("l", 10000000, "Up-limit for File with the Same Prefix")
-	fthread := flag.Int("ft", 10, "Max Read File Thread")
-	tThread := flag.Int("tt", 100, "Max Trie Search Thread")
-	path := flag.String("fp", "", "File Path")
-	savePath := flag.String("sp", "", "Result Save Path")
+	t1 := time.Now()
+	limit := flag.Int("l", 10000000, "desired limit for file with the same prefix")
+	splitLimit := flag.Int("sl", 1000000, "split large file to the specified number")
+	countLimit := flag.Int("cl", 1000, "count limit when get result of small part, should be small enough for result accuracy")
+	path := flag.String("fp", "", "directory for files need to split prefix")
+	Uplimit := flag.Int("upl", 40000000, "up-limit for file with the same prefix")
+	savePath := flag.String("sp", "", "result save path")
 	flag.Parse()
 
 	if *path == "" || *savePath == "" {
 		log.Fatal("bucket list path and result save path should be both provided")
 		return
 	}
-
+	if strings.HasSuffix(*savePath, "/") {
+		log.Fatal("Save Path should be file")
+		return
+	}
+	if !strings.HasSuffix(*path, "/") {
+		log.Fatal("File Path should be directory end with /")
+		return
+	}
 	fp, err := os.Stat(*path)
 	if os.IsNotExist(err) {
 		log.Fatal("File Path not exist!")
@@ -31,10 +41,6 @@ func main() {
 		log.Fatal("File Path is not directory")
 		return
 	}
-	if strings.HasSuffix(*savePath, "/") {
-		log.Fatal("Save Path should be file")
-		return
-	}
 
 	saveDir := (*savePath)[:strings.LastIndex(*savePath, "/")+1]
 	if _, err := os.Stat(saveDir); os.IsNotExist(err) {
@@ -42,14 +48,18 @@ func main() {
 		return
 	}
 
-	fm := file.NewFileManager(*path, *fthread, *tThread)
-	trie, err := fm.CreateTrie()
+	// 保证每次最多读 1000W 文件，内存不会超标
+	poolLimit := 10000000 / *splitLimit
+	if poolLimit < 1 {
+		poolLimit = 1
+	}
+	counter := file.NewCounter(*path, *splitLimit, *countLimit, *Uplimit, poolLimit)
+
+	result, err := counter.Result(*limit)
 	if err != nil {
-		log.Fatal("create tire failed, reason:", err)
+		log.Fatal("err when get result:", err)
 		return
 	}
-	// trie.Pick(uint(*limit), wg)
-	trie.Walk(limit)
 
 	f, err := os.Create(*savePath)
 	if err != nil {
@@ -58,14 +68,16 @@ func main() {
 	}
 	defer f.Close()
 
-	result_string := trie.ResultToString()
-	fmt.Print(result_string)
-
-	if _, err := f.WriteString(fmt.Sprintf("%s \nresult length = %d", result_string, len(result_string))); err != nil {
-		log.Fatal("write result failed, reason:", err)
+	for k, v := range result {
+		if _, err := f.WriteString(fmt.Sprintf("%s = %d \n", k, v)); err != nil {
+			log.Fatal("write result failed, reason:", err)
+		}
 	}
+
 	if err := f.Sync(); err != nil {
 		log.Fatal("file sync fail:", err)
 	}
 
+	elapsed := time.Since(t1)
+	log.Println("App elapsed: ", elapsed.Seconds())
 }

@@ -62,6 +62,7 @@ func (c *Counter) Result(limit int) (countResult, error) {
 	}
 	val, _ := tree.Get("")
 
+	// 对统计结果进行筛选
 	retryFn := func(limit int) (countResult, int) {
 		belowLImit := newCounterResult()
 		fn := func(s string, v interface{}) bool {
@@ -146,7 +147,7 @@ func (c *Counter) getChildResult(s string, totalSize *int64, childResultPool cha
 	childResultPool <- result
 }
 
-func (c *Counter) createTrie(fileName string) (trie_tree TrieTree, lines int) {
+func (c *Counter) createTrie(fileName string) (trie_tree *radix.Tree, lines int) {
 	log.Printf("start to create Trie for %v", fileName)
 	trie_tree = radix.NewTrieTree(10)
 	lines = readFile(fileName, c.fileManager, trie_tree)
@@ -155,8 +156,11 @@ func (c *Counter) createTrie(fileName string) (trie_tree TrieTree, lines int) {
 
 func (c *Counter) getResultWithRetry(total, limit int, fn func(limit int) (countResult, int)) (countResult, int) {
 	result, size := fn(limit)
-	// times := 1
 	for size != total { // 不相等说明无法细分到 limit 的大小，需要加大limit 重试
+		if size == c.limitUp { // 最大上线也无法满足结果，需要提升上线
+			log.Fatalf("can not get complete result from current Uplimit(%d)", c.limitUp)
+			break
+		}
 		log.Printf("Wrong result with limit (%d) error: total size (%d) != file line number (%d)", limit, size, total)
 		limit *= 2
 		if limit > c.limitUp {
@@ -167,6 +171,7 @@ func (c *Counter) getResultWithRetry(total, limit int, fn func(limit int) (count
 	return result, size
 }
 
+// 将各个文件的结果合并到统计结果中
 func mergeResult(a countResult, t *rad.Tree) {
 	for k, vFile := range a {
 		for i := 0; i <= len(k); i++ {

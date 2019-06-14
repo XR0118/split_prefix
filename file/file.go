@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"split_prefix/radix"
 	"strings"
 	"sync"
 )
@@ -19,9 +20,6 @@ type FileManager struct {
 	path        string
 	files       []string
 	countResult map[string]interface{}
-	// ch          chan int
-	// tireThread int
-	// wg sync.WaitGroup
 }
 
 type file struct {
@@ -159,7 +157,7 @@ func changePrefix(s string) string {
 	return strings.Replace(s, "/", "~", -1)
 }
 
-func readFile(fileName string, fm *FileManager, trie_tree TrieTree) int {
+func readFile(fileName string, fm *FileManager, trie_tree *radix.Tree) int {
 	lines := 0
 	f, err := os.Open(fm.path + fileName)
 	defer f.Close()
@@ -181,7 +179,7 @@ func readFile(fileName string, fm *FileManager, trie_tree TrieTree) int {
 	return lines
 }
 
-func deal(line []byte, trie TrieTree) error {
+func deal(line []byte, trie *radix.Tree) error {
 	f := new(file)
 	if err := json.Unmarshal(line, f); err != nil {
 		return err

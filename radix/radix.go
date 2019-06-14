@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"sync"
 )
 
 // edge is used to represent an edge node
@@ -23,20 +22,14 @@ type node struct {
 	// We avoid a fully materialized slice to save memory,
 	// since in most cases we expect to be sparse
 	edges edges
-
-	sync.RWMutex
 }
 
 func (n *node) addEdge(e edge) {
-	n.Lock()
-	defer n.Unlock()
 	n.edges = append(n.edges, e)
 	n.edges.Sort()
 }
 
 func (n *node) updateEdge(label byte, node *node) {
-	n.Lock()
-	defer n.Unlock()
 	num := len(n.edges)
 	idx := sort.Search(num, func(i int) bool {
 		return n.edges[i].label >= label
@@ -49,8 +42,6 @@ func (n *node) updateEdge(label byte, node *node) {
 }
 
 func (n *node) getAndCreateEdge(s string) (*node, bool) {
-	n.Lock()
-	defer n.Unlock()
 	var nChild *node
 	n.size++
 	num := len(n.edges)
@@ -79,8 +70,6 @@ func (n *node) getAndCreateEdge(s string) (*node, bool) {
 }
 
 func (n *node) getAndSplit(sOld string, parent *node) (sNew string, next, ret bool) {
-	n.Lock()
-	defer n.Unlock()
 	commonPrefix := longestPrefix(sOld, n.prefix)
 	if commonPrefix == len(n.prefix) {
 		sNew = sOld[commonPrefix:]
