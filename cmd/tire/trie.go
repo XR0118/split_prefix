@@ -12,9 +12,8 @@ import (
 
 func main() {
 	t1 := time.Now()
-	limit := flag.Int("l", 10000000, "desired limit for file with the same prefix")
+	limit := flag.Int("l", 20000000, "desired limit for file with the same prefix")
 	splitLimit := flag.Int("sl", 1000000, "split large file to the specified number")
-	countLimit := flag.Int("cl", 1000, "count limit when get result of small part, should be small enough for result accuracy")
 	path := flag.String("fp", "", "directory for files need to split prefix")
 	Uplimit := flag.Int("upl", 40000000, "up-limit for file with the same prefix")
 	savePath := flag.String("sp", "", "result save path")
@@ -48,12 +47,17 @@ func main() {
 		return
 	}
 
+	if *splitLimit > 10000000 {
+		*splitLimit = 1000000
+		log.Print("split limit is too large, change it to 100W")
+	}
+
 	// 保证每次最多读 1000W 文件，内存不会超标
 	poolLimit := 10000000 / *splitLimit
 	if poolLimit < 1 {
 		poolLimit = 1
 	}
-	counter := file.NewCounter(*path, *splitLimit, *countLimit, *Uplimit, poolLimit)
+	counter := file.NewCounter(*path, *splitLimit, *splitLimit/100, *Uplimit, poolLimit)
 
 	result, err := counter.Result(*limit)
 	if err != nil {

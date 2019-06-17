@@ -1,9 +1,7 @@
 package radix
 
 import (
-	"fmt"
 	"sort"
-	"strconv"
 )
 
 // edge is used to represent an edge node
@@ -41,9 +39,8 @@ func (n *node) updateEdge(label byte, node *node) {
 	panic("replacing missing edge")
 }
 
-func (n *node) getAndCreateEdge(s string) (*node, bool) {
+func (n *node) getAndCreateEdge(s string, v int) (*node, bool) {
 	var nChild *node
-	n.size++
 	num := len(n.edges)
 	idx := sort.Search(num, func(i int) bool {
 		return n.edges[i].label >= s[0]
@@ -59,7 +56,7 @@ func (n *node) getAndCreateEdge(s string) (*node, bool) {
 			label: s[0],
 			node: &node{
 				prefix: s,
-				size:   1,
+				size:   v,
 			},
 		}
 		n.edges = append(n.edges, e)
@@ -69,7 +66,7 @@ func (n *node) getAndCreateEdge(s string) (*node, bool) {
 	return nChild, create
 }
 
-func (n *node) getAndSplit(sOld string, parent *node) (sNew string, next, ret bool) {
+func (n *node) getAndSplit(sOld string, parent *node, v int) (sNew string, next, ret bool) {
 	commonPrefix := longestPrefix(sOld, n.prefix)
 	if commonPrefix == len(n.prefix) {
 		sNew = sOld[commonPrefix:]
@@ -78,7 +75,7 @@ func (n *node) getAndSplit(sOld string, parent *node) (sNew string, next, ret bo
 	}
 	child := &node{
 		prefix: sOld[:commonPrefix],
-		size:   n.size + 1,
+		size:   n.size + v,
 	}
 	parent.updateEdge(sOld[0], child)
 	child.addEdge(edge{
@@ -99,7 +96,7 @@ func (n *node) getAndSplit(sOld string, parent *node) (sNew string, next, ret bo
 		label: sNew[0],
 		node: &node{
 			prefix: sNew,
-			size:   1,
+			size:   v,
 		},
 	})
 	ret = true
@@ -129,24 +126,23 @@ type edges []edge
 // a standard hash map is prefix-based lookups and
 // ordered iteration,
 type Tree struct {
-	root   *node
-	result map[string]int
+	root *node
 }
 
 // New returns an empty Tree
-func NewTrieTree(maxThread int) *Tree {
-	return NewFromArray(nil)
+func NewTrieTree() *Tree {
+	return NewFromMap(nil)
 }
 
 // NewFromMap returns a new tree containing the keys
 // from an existing map
-func NewFromArray(a []string) *Tree {
-	t := &Tree{
-		root:   &node{},
-		result: make(map[string]int),
-	}
-	for _, v := range a {
-		t.Insert(v)
+func NewFromMap(m map[string]int) *Tree {
+	t := &Tree{root: &node{
+		prefix: "",
+		size:   0,
+	}}
+	for k, v := range m {
+		t.Insert(k, v)
 	}
 	return t
 }
@@ -154,14 +150,6 @@ func NewFromArray(a []string) *Tree {
 // Len is used to return the number of elements in the tree
 func (t *Tree) Len() int {
 	return t.root.size
-}
-
-func (t *Tree) Result() map[string]int {
-	return t.result
-}
-
-func (t *Tree) Clear() {
-	t.result = make(map[string]int)
 }
 
 // longestPrefix finds the length of the shared prefix
@@ -182,11 +170,15 @@ func longestPrefix(k1, k2 string) int {
 
 // Insert is used to add a newentry or update
 // an existing entry. Returns if updated.
-func (t *Tree) Insert(s string) {
+func (t *Tree) Insert(s string, v int) {
 	var parent *node
 	n := t.root
 	search := s
+	if v < 1 {
+		v = 1
+	}
 	for {
+		n.size += v
 		// Handle key exhaution
 		if len(search) == 0 {
 			return
@@ -195,7 +187,7 @@ func (t *Tree) Insert(s string) {
 		// Look for the edge
 		parent = n
 		var create bool
-		n, create = n.getAndCreateEdge(search)
+		n, create = n.getAndCreateEdge(search, v)
 		if create {
 			return
 		}
@@ -203,7 +195,7 @@ func (t *Tree) Insert(s string) {
 			next bool
 			ret  bool
 		)
-		search, next, ret = n.getAndSplit(search, parent)
+		search, next, ret = n.getAndSplit(search, parent, v)
 		if next {
 			continue
 		}
@@ -214,39 +206,20 @@ func (t *Tree) Insert(s string) {
 	}
 }
 
-// Walk is used to walk the tree
-func (t *Tree) Walk(limit *int) {
-	t.recursiveWalk(t.root, "", limit)
+type WalkFn func(s string, v int) bool
+
+func (t *Tree) Pick(fn WalkFn) {
+	t.recursivePick(t.root, "", fn)
 }
 
-// recursiveWalk is used to do a pre-order walk of a node
-// recursively. Returns true if the walk should be aborted
-func (t *Tree) recursiveWalk(n *node, tmp string, limit *int) {
+func (t *Tree) recursivePick(n *node, tmp string, fn WalkFn) {
 	tmp += n.prefix
-	if n.size <= *limit {
-		if tmp == "" {
-			for _, e := range n.edges {
-				t.result[e.node.prefix] = e.node.size
-			}
-		} else {
-			t.result[tmp] = n.size
-		}
+	if fn(tmp, n.size) {
 		return
 	}
-	for _, n := range n.edges {
-		t.recursiveWalk(n.node, tmp, limit)
+	for _, nChild := range n.edges {
+		t.recursivePick(nChild.node, tmp, fn)
 	}
-}
-
-func (t *Tree) ResultToString() (result string) {
-	total := 0
-	for k, v := range t.result {
-		tmp := strconv.Itoa(int(v))
-		str := k + "=" + tmp + ","
-		result += str
-		total += v
-	}
-	return fmt.Sprintf("%s, total = %d, len_resultMap = %d", result[:len(result)-1], total, len(t.result))
 }
 
 func (t *Tree) ToMap() map[string]int {

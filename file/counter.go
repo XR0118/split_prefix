@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"split_prefix/radix"
-	rad "split_prefix/radix-counter"
 	"sync"
 	"sync/atomic"
 )
@@ -39,9 +38,6 @@ type Counter struct {
 
 func NewCounter(path string, splitLimit, countLimit, limitUp, poolLimit int) *Counter {
 	fileManager := NewFileManager(path)
-	if countLimit > splitLimit/100 { // 需要保证 countLimit 足够小
-		countLimit = splitLimit / 100
-	}
 	return &Counter{
 		fileManager: fileManager,
 		splitLimit:  splitLimit,
@@ -52,35 +48,29 @@ func NewCounter(path string, splitLimit, countLimit, limitUp, poolLimit int) *Co
 	}
 }
 
+// limit 控制前缀分割的细粒度，limit 越大前缀越粗
 func (c *Counter) Result(limit int) (countResult, error) {
 	tree, err := c.count()
 	if err != nil {
 		return nil, err
 	}
-	val, _ := tree.Get("")
+	val := tree.Len()
 
 	// 对统计结果进行筛选
-	retryFn := func(limit int) (countResult, int) {
-		belowLImit := newCounterResult()
-		fn := func(s string, v interface{}) bool {
-			if v.(int) <= limit {
-				belowLImit[s] = v.(int)
-				return true
-			}
-			return false
-		}
-		tree.Pick(fn)
-		return belowLImit, belowLImit.total()
-	}
-	result, _ := c.getResultWithRetry(val.(int), limit, retryFn)
+	retryFn := getRetryFn(tree)
+	result, _ := c.getResultWithRetry(val, limit, retryFn)
 	return result, nil
 }
 
-func (c *Counter) count() (*rad.Tree, error) {
-	totalSize := new(int64) // 总共文件数
-	resultTree := rad.New() // 统计用的前缀树
-	if err := c.fileManager.SplitFile(c.splitLimit); err != nil {
+func (c *Counter) count() (*radix.Tree, error) {
+	totalSize := new(int64)           // 总共文件数
+	resultTree := radix.NewTrieTree() // 统计用的前缀树
+	lineNum, err := c.fileManager.SplitFile(c.splitLimit)
+	if err != nil {
 		return nil, err
+	}
+	if lineNum < c.splitLimit {
+		c.countLimit = lineNum / 10
 	}
 	childResultPool := make(chan countResult, 100)
 
@@ -109,10 +99,9 @@ func (c *Counter) count() (*rad.Tree, error) {
 
 	// 所有线程完成后统计
 	t := int(*totalSize)
-	log.Print(t)
-	val, ok := resultTree.Get("")
-	if !ok {
-		return nil, errors.New("no root path")
+	val := resultTree.Len()
+	if val < 1 {
+		return nil, errors.New("result tree root is empty")
 	}
 	if t != val {
 		return nil, errors.New(fmt.Sprintf("total count result is wrong: totalSize = %d, tree size = %d", t, val))
@@ -130,35 +119,29 @@ func (c *Counter) getChildResult(s string, totalSize *int64, childResultPool cha
 		log.Fatalf("create tree error when read file")
 		return
 	}
-	fn := func(limit int) (countResult, int) {
-		tree.Clear()
-		tree.Walk(&limit)
-		result := newCounterResultFromMap(tree.Result())
-		size := result.total()
-		return result, size
-	}
-	result, size := c.getResultWithRetry(lines, c.countLimit, fn)
+	retryFn := getRetryFn(tree)
+	result, size := c.getResultWithRetry(lines, c.countLimit, retryFn)
 	atomic.AddInt64(totalSize, int64(size))
 	childResultPool <- result
 }
 
 func (c *Counter) createTrie(fileName string) (trie_tree *radix.Tree, lines int) {
 	log.Printf("start to create Trie for %v", fileName)
-	trie_tree = radix.NewTrieTree(10)
+	trie_tree = radix.NewTrieTree()
 	lines = readFile(fileName, c.fileManager, trie_tree)
 	return
 }
 
 // walk 选出了满足 limit 条件的前缀后需要确认这些前缀的数量之和是不是与当前树的根目录 size 一致
-// 如果不一致，那么就将 limit 放大，知道 size 一致为止
+// 如果不一致，那么就将 limit 放大，直到 size 一致为止
 func (c *Counter) getResultWithRetry(total, limit int, fn func(limit int) (countResult, int)) (countResult, int) {
 	result, size := fn(limit)
 	for size != total { // 不相等说明无法细分到 limit 的大小，需要加大limit 重试
-		if limit == c.limitUp { // 最大上线也无法满足结果，需要提升上线或者减小
+		log.Printf("Wrong result with limit (%d) error: total size (%d) != file line number (%d)", limit, size, total)
+		if limit == c.limitUp {
 			log.Fatalf("can not get complete result from current Uplimit(%d)", c.limitUp)
 			break
 		}
-		log.Printf("Wrong result with limit (%d) error: total size (%d) != file line number (%d)", limit, size, total)
 		limit *= 2
 		if limit > c.limitUp {
 			limit = c.limitUp
@@ -169,14 +152,27 @@ func (c *Counter) getResultWithRetry(total, limit int, fn func(limit int) (count
 }
 
 // 将各个文件的结果合并到统计结果中
-func mergeResult(childResult countResult, t *rad.Tree) {
+func mergeResult(childResult countResult, t *radix.Tree) {
 	for k, vFile := range childResult {
-		for i := 0; i <= len(k); i++ {
-			if vOld, ok := t.Get(k[:i]); ok {
-				t.Insert(k[:i], vOld.(int)+vFile)
-			} else {
-				t.Insert(k[:i], vFile)
-			}
+		t.Insert(k, vFile)
+	}
+}
+
+func getRetryFn(tree *radix.Tree) func(limit int) (countResult, int) {
+	return func(limit int) (countResult, int) {
+		belowLImit := newCounterResult()
+		fn := getWalkFn(limit, belowLImit)
+		tree.Pick(fn)
+		return belowLImit, belowLImit.total()
+	}
+}
+
+func getWalkFn(limit int, result countResult) radix.WalkFn {
+	return func(s string, v int) bool {
+		if v <= limit && len(s) > 0 {
+			result[s] = v
+			return true
 		}
+		return false
 	}
 }

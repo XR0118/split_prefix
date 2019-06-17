@@ -37,15 +37,15 @@ func (fm *FileManager) Files() []string {
 	return fm.files
 }
 
-func (fm *FileManager) SplitFile(limit int) error {
-	splitList, err := fm.getFileToSplit(limit)
+func (fm *FileManager) SplitFile(limit int) (int, error) {
+	splitList, lineNum, err := fm.getFileToSplit(limit)
 	if err != nil {
-		return err
+		return -1, err
 	}
 	bakPath, err := fm.mkdir()
 	log.Printf("bak path: %s", bakPath)
 	if err != nil {
-		return err
+		return -1, err
 	}
 	ch := make(chan bool, 5)
 	wg := new(sync.WaitGroup)
@@ -57,22 +57,36 @@ func (fm *FileManager) SplitFile(limit int) error {
 	wg.Wait()
 	fm.files = listDir(fm.path)
 	log.Printf("len files: %v", len(fm.files))
-	return nil
+	return lineNum, nil
 }
 
-func (fm *FileManager) getFileToSplit(limit int) (map[string]int, error) {
+func (fm *FileManager) getFileToSplit(limit int) (map[string]int, int, error) {
 	splitList := make(map[string]int)
+	fileLine := make(map[int]int)
 	for _, fileName := range fm.files {
 		lines, err := countLine(fm.path + fileName)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("get split list err: %s", err))
+			return nil, -1, errors.New(fmt.Sprintf("get split list err: %s", err))
+		}
+		if _, ok := fileLine[lines]; ok {
+			fileLine[lines]++
+		} else {
+			fileLine[lines] = 1
 		}
 		if lines > limit {
 			splitList[fileName] = lines
 		}
 	}
+	max := 0
+	maxKey := 0
+	for k, v := range fileLine {
+		if v > max {
+			max = v
+			maxKey = k
+		}
+	}
 	log.Printf("file need to split: %v", splitList)
-	return splitList, nil
+	return splitList, maxKey, nil
 }
 
 func (fm *FileManager) mkdir() (string, error) {
@@ -184,7 +198,7 @@ func deal(line []byte, trie *radix.Tree) error {
 	if err := json.Unmarshal(line, f); err != nil {
 		return err
 	}
-	trie.Insert(f.Name)
+	trie.Insert(f.Name, 1)
 	return nil
 }
 

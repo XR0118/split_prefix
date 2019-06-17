@@ -9,7 +9,7 @@ import (
 
 func TestResultLarge(t *testing.T) {
 	counter := NewCounter("/tmp/test/test/", 1000000, 1000, 30000000, 10)
-	result, err := counter.Result(300000)
+	result, err := counter.Result(20000000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func TestResultLarge(t *testing.T) {
 
 func TestResultSmall(t *testing.T) {
 	counter := NewCounter("/Users/qnxr/test/test/", 5000, 1000, 30000000, 3)
-	result, err := counter.Result(1000)
+	result, err := counter.Result(10000)
 	if err != nil {
 		t.Fatal(err)
 	}
