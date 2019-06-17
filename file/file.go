@@ -83,6 +83,10 @@ func (fm *FileManager) getFileToSplit(limit int) (map[string]int, int, error) {
 		if v > max {
 			max = v
 			maxKey = k
+		} else if v == max {
+			if k < maxKey {
+				maxKey = k
+			}
 		}
 	}
 	log.Printf("file need to split: %v", splitList)

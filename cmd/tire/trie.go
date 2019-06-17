@@ -52,8 +52,8 @@ func main() {
 		log.Print("split limit is too large, change it to 100W")
 	}
 
-	// 保证每次最多读 1000W 文件，内存不会超标
-	poolLimit := 10000000 / *splitLimit
+	// 保证每次最多读 200W 文件，内存不会超标
+	poolLimit := 2000000 / *splitLimit
 	if poolLimit < 1 {
 		poolLimit = 1
 	}

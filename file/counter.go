@@ -33,6 +33,7 @@ type Counter struct {
 	countLimit  int
 	counterPool chan bool
 	limitUp     int
+	poolLimit   int
 	wg          *sync.WaitGroup
 }
 
@@ -43,6 +44,7 @@ func NewCounter(path string, splitLimit, countLimit, limitUp, poolLimit int) *Co
 		splitLimit:  splitLimit,
 		countLimit:  countLimit,
 		limitUp:     limitUp,
+		poolLimit:   poolLimit,
 		counterPool: make(chan bool, poolLimit),
 		wg:          new(sync.WaitGroup),
 	}
@@ -72,7 +74,9 @@ func (c *Counter) count() (*radix.Tree, error) {
 	if lineNum < c.splitLimit {
 		c.countLimit = lineNum / 10
 	}
-	childResultPool := make(chan countResult, 100)
+
+	// 与读文件线程数相同，避免过多的 map 结果占用内存
+	childResultPool := make(chan countResult, c.poolLimit)
 
 	// 统计线程
 	c.wg.Add(1)
@@ -81,6 +85,7 @@ func (c *Counter) count() (*radix.Tree, error) {
 		count := 0
 		for {
 			childResult := <-childResultPool
+			// 单线程统计，插入速度过慢可能会是瓶颈，需要将树改为支持并发的结构,支持多线程插入
 			mergeResult(childResult, resultTree)
 			count++
 			if count == len(c.fileManager.Files()) {
