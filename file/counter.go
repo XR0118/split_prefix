@@ -65,14 +65,14 @@ func (c *Counter) Result(limit int) (countResult, error) {
 }
 
 func (c *Counter) count() (*radix.Tree, error) {
-	totalSize := new(int64)           // 总共文件数
-	resultTree := radix.NewTrieTree() // 统计用的前缀树
-	lineNum, err := c.fileManager.SplitFile(c.splitLimit)
+	totalSize := new(int64)                               // 文件名总数
+	resultTree := radix.NewTrieTree()                     // 统计用的前缀树
+	lineNum, err := c.fileManager.SplitFile(c.splitLimit) // lineNum 是 list bucket 时的 betch】 size
 	if err != nil {
 		return nil, err
 	}
 	if lineNum < c.splitLimit {
-		c.countLimit = lineNum / 10
+		c.countLimit = lineNum / 10 // 根据 list bucket 的 betch size 调整 countlimit，避免子文件前缀分类不够细的问题
 	}
 
 	// 与读文件线程数相同，避免过多的 map 结果占用内存
@@ -174,6 +174,7 @@ func getRetryFn(tree *radix.Tree) func(limit int) (countResult, int) {
 
 func getWalkFn(limit int, result countResult) radix.WalkFn {
 	return func(s string, v int) bool {
+		// len(s) > 0 的目的在于不能返回空前缀，如果返回了，那么会导致只有 "" 目录的文件数是正确的
 		if v <= limit && len(s) > 0 {
 			result[s] = v
 			return true

@@ -79,6 +79,7 @@ func (fm *FileManager) getFileToSplit(limit int) (map[string]int, int, error) {
 	}
 	max := 0
 	maxKey := 0
+	// 统计文件行数出现最多的那个行数，应该是 list bucket 时选择的 betch size
 	for k, v := range fileLine {
 		if v > max {
 			max = v
