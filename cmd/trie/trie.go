@@ -15,7 +15,6 @@ func main() {
 	limit := flag.Int("l", 20000000, "desired limit for file with the same prefix")
 	splitLimit := flag.Int("sl", 1000000, "split large file to the specified number")
 	path := flag.String("fp", "", "directory for files need to split prefix")
-	Uplimit := flag.Int("upl", 40000000, "up-limit for file with the same prefix")
 	savePath := flag.String("sp", "", "result save path")
 	flag.Parse()
 
@@ -57,7 +56,7 @@ func main() {
 	if poolLimit < 1 {
 		poolLimit = 1
 	}
-	counter := file.NewCounter(*path, *splitLimit, *splitLimit/100, *Uplimit, poolLimit)
+	counter := file.NewCounter(*path, *splitLimit, *splitLimit/100, 40000000, poolLimit)
 
 	result, err := counter.Result(*limit)
 	if err != nil {

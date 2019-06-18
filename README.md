@@ -2,7 +2,9 @@
 
 ## 使用方式
 
-Usage of ./tire:
+运行之前需要确保 `file/split.sh` 和 编译完成的 `trie` 命令在同一个目录
+
+Usage of ./trie:
 
 -fp string (是用工具拉取 bucket 保存结果的路径, 需要以 / 结尾)
 
@@ -12,17 +14,13 @@ directory for files need to split prefix
 
 desired limit for file with the same prefix (default 20000000)
 
--sl int (对拉的大文件进行分割的文件行数)
+-sl int (对拉的大文件进行分割的文件行数, 切割文件比较耗时，建议切分大小建议在 100W, 默认5个线程进行切分)
 
 split large file to the specified number (default 1000000)
 
 -sp string (保存结果的文件, 文件可以创建, 但是路径必须要存在)
 
 result save path
-
--upl int (前缀限制的上限，默认 40000000, 可以根据需要修改)
-
-up-limit for file with the same prefix (default 40000000)
 
 ## file
 
